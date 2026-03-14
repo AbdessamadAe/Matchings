@@ -276,7 +276,7 @@ def count_fully_symmetric(G, n):
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
-        print("Usage: python3 app_optimized.py <n>")
+        print("Usage: python3 app.py <n>")
         sys.exit(1)
 
     n = int(sys.argv[1])
