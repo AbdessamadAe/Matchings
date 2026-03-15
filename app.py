@@ -3,6 +3,36 @@ import matplotlib.pyplot as plt
 import sys
 import os
 
+
+def draw_matching(G, n, M, filepath):
+    pos = compute_positions(n + 1)
+    plt.figure(figsize=(8, 8))
+    nx.draw_networkx_edges(G, pos, edge_color="lightgray")
+    nx.draw_networkx_edges(G, pos, edgelist=list(M), edge_color="blue", width=3)
+    nx.draw_networkx_nodes(G, pos, nodelist=list(G.nodes()), node_size=200 * 6 / n)
+    plt.title(filepath.split("/")[-1])
+    plt.axis("equal")
+    plt.axis("off")
+    plt.savefig(filepath, dpi=300)
+    plt.close()
+
+
+
+def compute_positions(n):
+    pos = {}
+    for r in range(n):
+        for c in range(r + 1):
+            pos[("v", r, c)] = (c - r / 2, -r)
+    for r in range(n - 1):
+        for c in range(r + 1):
+            x1, y1 = pos[("v", r, c)]
+            x2, y2 = pos[("v", r + 1, c)]
+            x3, y3 = pos[("v", r + 1, c + 1)]
+            pos[("c", r, c)] = ((x1 + x2 + x3) / 3, (y1 + y2 + y3) / 3)
+    return pos
+
+
+
 def build_G(n):
     height = n + 1
     G = nx.Graph()
@@ -26,12 +56,35 @@ def build_G(n):
     return G
 
 
+# ---------------------------------------------------------------------------
+# Symmetry maps
+#
+# Coordinate system:
+#   ("v", r, c)  for 0 <= c <= r <= n       (vertex nodes)
+#   ("c", r, c)  for 0 <= c <= r <= n-1     (center nodes)
+#
+# Integer barycentric coords for ("v",r,c), summing to n:
+#   alpha = n - r,   beta = r - c,   gamma = c
+#
+# Integer barycentric coords for ("c",r,c), summing to 3n:
+#   alpha = 3(n-r)-2,  beta = 3(r-c)+1,  gamma = 3c+1
+#
+# Rotation rho: (alpha,beta,gamma) -> (gamma,alpha,beta)
+# This gives different (r,c) formulas per node type (derived below).
+#
+# Reflection sigma1: (alpha,beta,gamma) -> (alpha,gamma,beta)
+# => c -> r-c for both node types (same formula).
+# ---------------------------------------------------------------------------
+
 def rotate_vertex(node, n):
     """120-degree rotation rho."""
     kind, r, c = node
     if kind == "v":
+        # alpha2=gamma=c => r2=n-c;  gamma2=beta=r-c => c2=r-c
         return (kind, n - c, r - c)
     else:
+        # alpha2=gamma=3c+1 => 3(n-r2)-2=3c+1 => r2=n-c-1
+        # gamma2=beta=3(r-c)+1 => 3c2+1=3(r-c)+1 => c2=r-c
         return (kind, n - c - 1, r - c)
 
 
@@ -70,6 +123,8 @@ def is_fully_symmetric(M, n):
         and M == apply_sym(M, lambda v: reflect3_vertex(v, n))
     )
 
+
+
 def get_axis_nodes(G, n):
     """
     Nodes fixed by each reflection lie on the corresponding axis.
@@ -84,7 +139,6 @@ def get_axis_nodes(G, n):
     axis2 = fixed_by(lambda v: reflect2_vertex(v, n))
     axis3 = fixed_by(lambda v: reflect3_vertex(v, n))
     return axis1, axis2, axis3
-
 
 
 def get_orbits(nodes, n):
@@ -105,6 +159,7 @@ def get_orbits(nodes, n):
         orbits.append(orbit)
         remaining -= orbit
     return orbits
+
 
 
 def generate_perfect_matchings(G):
@@ -128,6 +183,8 @@ def axis_pairings(axis_nodes, G):
         return
     H = G.subgraph(sorted(axis_nodes)).copy()
     yield from generate_perfect_matchings(H)
+
+
 
 def symmetric_matchings_off_axis(off_axis_nodes, G, n):
     """
@@ -186,7 +243,6 @@ def symmetric_matchings_off_axis(off_axis_nodes, G, n):
 
     yield from recurse(orbits, set(), set())
 
-
 def visualize_G(n):
     nz = 250 * 2 / n
     G  = build_G(n)
@@ -236,6 +292,15 @@ def visualize_G(n):
     print(f"Saved G{n}.png")
 
 
+def matching_to_str(M, index):
+    """Return a human-readable string for one matching."""
+    edges = sorted(M)
+    lines = [f"Matching {index}:"]
+    for u, v in edges:
+        lines.append(f"  {u} -- {v}")
+    return "\n".join(lines)
+
+
 def count_fully_symmetric(G, n):
     base_folder = f"matchings_output/G{n}"
     full_folder  = os.path.join(base_folder, "full_D3")
@@ -251,26 +316,36 @@ def count_fully_symmetric(G, n):
 
     full_index    = 0
     total_checked = 0
+    txt_path      = os.path.join(base_folder, f"G{n}_fully_symmetric.txt")
 
-    for axis_M in axis_pairings(all_axis_nodes, G):
-        for off_M in symmetric_matchings_off_axis(off_axis_nodes, G, n):
-            M = axis_M | off_M
-            total_checked += 1
+    with open(txt_path, "w") as txt_file:
+        txt_file.write(f"Fully D3-symmetric perfect matchings of G{n}\n")
+        txt_file.write("=" * 50 + "\n\n")
 
-            if len(M) * 2 != G.number_of_nodes():
-                continue
+        for axis_M in axis_pairings(all_axis_nodes, G):
+            for off_M in symmetric_matchings_off_axis(off_axis_nodes, G, n):
+                M = axis_M | off_M
+                total_checked += 1
 
-            # Safety check: should always pass by construction
-            if is_fully_symmetric(M, n):
-                full_index += 1
-                draw_matching(
-                    G, n, M,
-                    os.path.join(full_folder, f"full_{full_index}.png")
-                )
+                if len(M) * 2 != G.number_of_nodes():
+                    continue
+
+                # Safety check: should always pass by construction
+                if is_fully_symmetric(M, n):
+                    full_index += 1
+                    draw_matching(
+                        G, n, M,
+                        os.path.join(full_folder, f"full_{full_index}.png")
+                    )
+                    txt_file.write(matching_to_str(M, full_index) + "\n\n")
+
+        txt_file.write("=" * 50 + "\n")
+        txt_file.write(f"Total: {full_index}\n")
 
     print(f"Combinations checked: {total_checked}")
     print(f"Fully D3-symmetric matchings: {full_index}")
     print(f"Fully symmetric even? {full_index % 2 == 0}")
+    print(f"Saved numerical representations to {txt_path}")
     return full_index
 
 
